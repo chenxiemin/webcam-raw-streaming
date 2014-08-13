@@ -73,7 +73,7 @@ void *vc_open (int width, int height, double fps)
 	//ctx->param.b_vfr_input = 1;
 
 	// ctx->param.i_keyint_max = ctx->param.i_fps_num * 2;
-	ctx->param.i_keyint_max = 1;
+	// ctx->param.i_keyint_max = 1;
 	// ctx->param.i_keyint_min = 1;
 
 	// rc
@@ -202,8 +202,10 @@ int vc_compress (void *ctx, unsigned char *data[4], int stride[4], const void **
 		// 实际使用 zerolatency preset 时, 效果足够好了
 		int rc = x264_encoder_encode(c->x264, &nals, &nal_cnt, pic, &pic_out);
 		if (rc < 0) return -1;
+#ifdef DEBUG_MORE
 		if (pic_out.b_keyframe)
 			dumpnals(c->x264, pic_out.i_type, nals, nal_cnt);
+#endif
 		encode_nals(c, nals, nal_cnt);
 	} while (0);
 

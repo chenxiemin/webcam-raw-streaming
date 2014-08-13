@@ -1,6 +1,7 @@
 LIVE555= ../
 
-all: zk_v4l2_x264_source video_source rend
+all: zk_v4l2_x264_source video_source rend rend_server rend_client \
+	test_server test_client
 
 LIB_SUFFIX=a
 INCLUDES = -I$(LIVE555)/UsageEnvironment/include -I$(LIVE555)/groupsock/include \
@@ -26,6 +27,18 @@ video_source: server.o sender.o capture.o vcompress.o
 rend: rend.o capture.o vcompress.o decode_context.o
 	$(CXX) -o $@ $^ -fPIC -lavcodec -lswscale -lavutil  -lx264 -lpthread -lSDL
 
+rend_server: rend_server.o sock.o
+	$(CXX) -o $@ $^ -fPIC -lavcodec -lswscale -lavutil  -lx264 -lpthread
+
+rend_client: rend_client.o sock.o
+	$(CXX) -o $@ $^ -fPIC -lavcodec -lswscale -lavutil  -lx264 -lpthread
+
+test_server: test_server.o sock.o
+	$(CXX) -o $@ $^ -fPIC -lavcodec -lswscale -lavutil  -lx264 -lpthread
+
+test_client: test_client.o sock.o
+	$(CXX) -o $@ $^ -fPIC -lavcodec -lswscale -lavutil  -lx264 -lpthread
+
 cpp.o:
 	$(CXX) $(CXXFLAGS) $<
 
@@ -34,4 +47,6 @@ clean:
 	rm -f zk_v4l2_x264_source
 	rm -f video_source
 	rm -f rend
+	rm -rf rend_server
+	rm -rf rend_client
 

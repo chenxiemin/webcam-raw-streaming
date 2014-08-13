@@ -15,13 +15,8 @@
  *
  * =====================================================================================
  */
-#include <iostream>
-
-using namespace std;
-
-#define LOGE printf;
-
 #include "decode_context.h"
+#include "log.h"
 
 struct DecodeContext {
     AVCodecContext *av_codec_context_;
@@ -112,8 +107,9 @@ int dc_decode(PDecodeContext pdc, uint8_t *buffer, int len)
     int frameFinished = 0;
     int res = avcodec_decode_video2(pdc->av_codec_context_,
             pdc->picture, &frameFinished, &pkt);
+    av_free_packet(&pkt);
     if (res < 0) {
-        cout << "cannot decode video2: " << res << endl;
+        LOGE("cannot decode video2: %d", res);
         return -1;
     }
 

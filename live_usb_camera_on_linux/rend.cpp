@@ -18,6 +18,7 @@
 
 #include <iostream>
 #include <SDL/SDL.h>
+#include <chrono>
 
 #include "types.h"
 #include "capture.h"
@@ -25,6 +26,7 @@
 #include "decode_context.h"
 
 using namespace std;
+using namespace std::chrono;
 
 #define WIDTH 640
 #define HEIGHT 480
@@ -49,14 +51,20 @@ pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
 
 void *thd_hook(void *tag)
 {
-    Picture pic;
+    static int readCount = 0;
+    static int decodeCount = 0;
+    static int encodeSize = 0;
+    static system_clock::time_point starttime = system_clock::now();
 
+    Picture pic;
+    starttime = system_clock::now();
     while (isrun) {
 		int res = capture_get_picture(mp_capture, &pic);
         if (1 != res) {
             cout << "Cannot get picture: " << res << endl;
             continue;
         }
+        readCount++;
 
 		const void *outbuf;
 		int outlen;
@@ -65,12 +73,14 @@ void *thd_hook(void *tag)
             cout << "Cannot compress pic: " << res << endl;
             continue;
         }
+        encodeSize += outlen;
 
         res = dc_decode(pdc, (uint8_t *)outbuf, outlen);
         if (1 != res) {
             cout << "no decodeced frame: " << res << endl;
             continue;
         }
+        decodeCount++;
 
         // lock first
         pthread_mutex_lock(&mutex);
@@ -79,11 +89,18 @@ void *thd_hook(void *tag)
         event.type = FF_REFRESH_EVENT;
         SDL_PushEvent(&event);
         // wait consume
-        cout << "Waiting for data consume" << endl;
+        // cout << "Waiting for data consume" << endl;
         pthread_cond_wait(&cond, &mutex);
         pthread_mutex_unlock(&mutex);
-        cout << "After waiting for data consume isrun " << isrun << endl;
+        // cout << "After waiting for data consume isrun " << isrun << endl;
     }
+
+    // report
+    milliseconds dur = duration_cast<milliseconds>(system_clock::now() - starttime);
+    cout << "Frame read " << readCount << " decode " << decodeCount <<
+        " in duration " << dur.count() << " fps " << dur.count() / readCount <<
+        " bit rate " << encodeSize / 1024 / (dur.count() / 1000) << endl;
+
     return NULL;
 }
 
@@ -126,7 +143,7 @@ void sdl_loop()
             break;
         case FF_REFRESH_EVENT:
         {
-            cout << "Got FF_REFRESH_EVENT" << endl;
+            // cout << "Got FF_REFRESH_EVENT" << endl;
             if (needQuit) {
                 cout << "Quit in FF_REFRESH_EVENT" << endl;
                 if (0 != pid)
