@@ -27,11 +27,11 @@ video_source: server.o sender.o capture.o vcompress.o
 rend: rend.o capture.o vcompress.o decode_context.o
 	$(CXX) -o $@ $^ -fPIC -lavcodec -lswscale -lavutil  -lx264 -lpthread -lSDL
 
-rend_server: rend_server.o sock.o
+rend_server: rend_server.o sock.o capture.o vcompress.o
 	$(CXX) -o $@ $^ -fPIC -lavcodec -lswscale -lavutil  -lx264 -lpthread
 
-rend_client: rend_client.o sock.o
-	$(CXX) -o $@ $^ -fPIC -lavcodec -lswscale -lavutil  -lx264 -lpthread
+rend_client: rend_client.o sock.o decode_context.o
+	$(CXX) -o $@ $^ -fPIC -lavcodec -lswscale -lavutil  -lx264 -lpthread -lSDL
 
 test_server: test_server.o sock.o
 	$(CXX) -o $@ $^ -fPIC -lavcodec -lswscale -lavutil  -lx264 -lpthread

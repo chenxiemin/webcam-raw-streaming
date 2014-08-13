@@ -130,8 +130,50 @@ int sock_accpet(PSocketContext ps, SocketAcceptHandler cb, void *tag)
 
 int sock_connect(PSocketContext ps)
 {
-    return connect(ps->socket, (struct sockaddr *)&ps->sockaddr,
+    int res = connect(ps->socket, (struct sockaddr *)&ps->sockaddr,
             sizeof(ps->sockaddr));
+    if (0 == res)
+        return 0;
+
+    // error state
+    if (errno != EINPROGRESS) {
+        LOGE("Connect error state: %d", errno);
+        return -1;
+    }
+
+    int conret;
+    fd_set myset;
+    struct timeval tv;
+    int valopt;
+    int len;
+
+    tv.tv_sec = 15;         /* 15 秒等待*/
+    tv.tv_usec = 0; 
+    FD_ZERO(&myset); 
+    FD_SET(ps->socket, &myset);
+    conret = select(ps->socket + 1, NULL, &myset, NULL, &tv); 
+    if (conret < 0 && errno != EINTR) {
+        LOGE("Error connect: %d", errno);
+        return -1;
+    } else if (conret > 0) { 
+        // Socket selected for write 
+        len = sizeof(int); 
+        if (getsockopt(ps->socket, SOL_SOCKET, SO_ERROR,
+                    (void*)(&valopt), (socklen_t *)&len) < 0) { 
+            LOGE("Error in getsockopt() %d - %s\n", errno, strerror(errno));
+            return -1;
+        } 
+        // Check the value returned... 
+        if (valopt) {
+            LOGE("Error in delayed connection() %d - %s\n",
+                    valopt, strerror(valopt)); 
+            return -1;
+        }
+        return 0;
+    } else { 
+        LOGE("Timeout in select() - Cancelling!\n"); 
+        return -1;
+    } 
 }
 
 int sock_send(PSocketContext ps, const char *buf, int len)
@@ -150,7 +192,20 @@ int sock_send(PSocketContext ps, const char *buf, int len)
 
 int sock_recv(PSocketContext ps, char *buf, int len)
 {
-    return recv(ps->socket, buf, len, 0);
+    int res = -1;
+    do {
+        res = recv(ps->socket, buf, len, 0);
+        if (res < 0) {
+            if (EAGAIN == errno)
+                continue;
+            else
+                LOGE("Cannot recv buffer: %d - %s", errno, strerror(errno));
+        }
+
+        break;
+    } while(1);
+
+    return res;
 }
 
 int sock_fd(PSocketContext ps)
