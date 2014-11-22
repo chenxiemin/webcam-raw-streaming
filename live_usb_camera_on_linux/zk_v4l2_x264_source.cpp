@@ -245,6 +245,7 @@ public:
 	}
 
 protected:
+    virtual unsigned maxFrameSize() const { return 100 * 1024; }
 	virtual void doGetNextFrame ()
 	{
         cout << "Function " << __FUNCTION__ << " at dur " <<
@@ -303,7 +304,7 @@ private:
 			fNumTruncatedBytes = 0;
 		}
 
-		memmove(fTo, outbuf, fFrameSize);
+		memmove(fTo, outbuf, outlen);
 
 		// notify
 		afterGetting(this);
