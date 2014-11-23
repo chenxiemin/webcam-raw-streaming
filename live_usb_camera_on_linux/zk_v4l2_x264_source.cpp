@@ -32,10 +32,9 @@ extern "C"{
 static UsageEnvironment *_env = 0;
 
 #define SINK_PORT 3030
-
-#define VIDEO_WIDTH 640
-#define VIDEO_HEIGHT 480
-#define FRAME_PER_SEC 30.0
+#define VIDEO_WIDTH 1280
+#define VIDEO_HEIGHT 720
+#define FRAME_PER_SEC 25
 
 using namespace std;
 using namespace std::chrono;
@@ -45,94 +44,7 @@ pid_t gettid()
 	return syscall(SYS_gettid);
 }
 
-#if 0
-class MyOndemandMediaSubsession : public OnDemandServerMediaSubsession
-{
-	char *mp_sdp_line;
-	RTPSink *mp_dump_sink;
-	char m_done;
-	int m_port;	// udp listen
-
-	static void afterPlayingDump (void *opaque)
-	{
-		MyOndemandMediaSubsession *This = (MyOndemandMediaSubsession*)opaque;
-		This->afterPlayingDump1();
-	}
-	static void chk_sdp_done (void *opaque) 
-	{
-		MyOndemandMediaSubsession *This = (MyOndemandMediaSubsession*)opaque;
-		This->chk_sdp_done1();
-	}
-public:
-	void afterPlayingDump1 ()
-	{
-		envir().taskScheduler().unscheduleDelayedTask(nextTask());
-		m_done = 1;
-	}
-
-	void chk_sdp_done1 ()
-	{
-		if (mp_sdp_line) {
-			m_done = 1;
-		}
-		else if (mp_dump_sink && mp_dump_sink->auxSDPLine()) {
-			mp_sdp_line = strdup(mp_dump_sink->auxSDPLine());
-			mp_dump_sink = 0;
-			m_done = 1;
-		}
-		else {
-			// try again
-			nextTask() = envir().taskScheduler().scheduleDelayedTask(100000,	// 100ms
-					chk_sdp_done, this);
-		}
-	}
-
-	MyOndemandMediaSubsession (UsageEnvironment &env, int port)
-		: OnDemandServerMediaSubsession(env, True)
-	{
-		mp_sdp_line = 0;
-		mp_dump_sink = 0;
-		m_done = 0;
-		m_port = port;
-	}
-
-	~MyOndemandMediaSubsession ()
-	{
-		if (mp_sdp_line) free(mp_sdp_line);
-	}
-
-	virtual char const* getAuxSDPLine(RTPSink* rtpSink, FramedSource* inputSource)
-	{
-		if (mp_sdp_line) return mp_sdp_line;
-		if (!mp_dump_sink) {
-			mp_dump_sink = rtpSink;
-			mp_dump_sink->startPlaying(*inputSource, afterPlayingDump, this);
-			chk_sdp_done(this);
-		}
-		
-		envir().taskScheduler().doEventLoop(&m_done); // blocking...
-		return mp_sdp_line;
-	}
-
-	virtual FramedSource* createNewStreamSource(unsigned clientSessionId, unsigned& estBitrate)
-	{
-		estBitrate = 500;
-
-		in_addr addr;
-		addr.s_addr = inet_addr("localhost");
-		Port port(m_port);
-
-		FramedSource *source = BasicUDPSource::createNew(envir(), new Groupsock(envir(), addr, port, 10));
-		return H264VideoStreamDiscreteFramer::createNew(envir(), source);
-	}
-
-	virtual RTPSink* createNewRTPSink(Groupsock* rtpgs, unsigned char type, FramedSource* source)
-	{
-		return H264VideoRTPSink::createNew(envir(), rtpgs, type);
-	}
-};
-#endif
-
+#if 0 // for decode test
 struct DecodeContext {
     AVCodec *codec;
     AVCodecContext *av_codec_context_;
@@ -197,6 +109,7 @@ static void decode_test(unsigned char *buffer, int len)
 
     cout << "Frame finished: " << frameFinished << endl;
 }
+#endif
 
 // 使用 webcam + x264
 class WebcamFrameSource : public FramedSource
@@ -208,17 +121,18 @@ class WebcamFrameSource : public FramedSource
     system_clock::time_point mtimeGetting;
 
 public:
-	WebcamFrameSource (UsageEnvironment &env)
+	WebcamFrameSource(UsageEnvironment &env, int width,
+            int height, PixelFormat format, double frame)
 		: FramedSource(env)
 	{
 		fprintf(stderr, "[%d] %s .... calling\n", gettid(), __func__);
-		mp_capture = capture_open("/dev/video0", VIDEO_WIDTH, VIDEO_HEIGHT, PIX_FMT_YUV420P);
+		mp_capture = capture_open("/dev/video0", width, height, format);
 		if (!mp_capture) {
 			fprintf(stderr, "%s: open /dev/video0 err\n", __func__);
 			exit(-1);
 		}
 
-		mp_compress = vc_open(VIDEO_WIDTH, VIDEO_HEIGHT, FRAME_PER_SEC);
+		mp_compress = vc_open(width, height, frame);
 		if (!mp_compress) {
 			fprintf(stderr, "%s: open x264 err\n", __func__);
 			exit(-1);
@@ -287,7 +201,9 @@ private:
 			return;
 		}
 
+#if 0 // for decode test
         decode_test((unsigned char *)outbuf, outlen);
+#endif
 
 		int64_t pts, dts;
 		int key;
@@ -318,70 +234,29 @@ private:
 
 class WebcamOndemandMediaSubsession : public OnDemandServerMediaSubsession
 {
-public:
-	static WebcamOndemandMediaSubsession *createNew (UsageEnvironment &env, FramedSource *source)
-	{
-		return new WebcamOndemandMediaSubsession(env, source);
-	}
+private:
+    int mwidth;
+    int mheight;
+    PixelFormat mformat;
+    double mfps;
+
 
 protected:
-	WebcamOndemandMediaSubsession (UsageEnvironment &env, FramedSource *source)
+	WebcamOndemandMediaSubsession(UsageEnvironment &env, int width,
+            int height, PixelFormat format, double fps)
 		: OnDemandServerMediaSubsession(env, True) // reuse the first source
 	{
 		fprintf(stderr, "[%d] %s .... calling\n", gettid(), __func__);
-		mp_source = source;
-		mp_sdp_line = 0;
+
+        mwidth = width;
+        mheight = height;
+        mformat = format;
+        mfps = fps;
 	}
 
 	~WebcamOndemandMediaSubsession ()
 	{
 		fprintf(stderr, "[%d] %s .... calling\n", gettid(), __func__);
-		if (mp_sdp_line) free(mp_sdp_line);
-	}
-
-private:
-	static void afterPlayingDummy (void *ptr)
-	{
-		fprintf(stderr, "[%d] %s .... calling\n", gettid(), __func__);
-		// ok
-		WebcamOndemandMediaSubsession *This = (WebcamOndemandMediaSubsession*)ptr;
-		This->m_done = 0xff;
-	}
-
-	static void chkForAuxSDPLine (void *ptr)
-	{
-		WebcamOndemandMediaSubsession *This = (WebcamOndemandMediaSubsession *)ptr;
-		This->chkForAuxSDPLine1();
-	}
-
-	void chkForAuxSDPLine1 ()
-	{
-		fprintf(stderr, "[%d] %s .... calling\n", gettid(), __func__);
-		if (mp_dummy_rtpsink->auxSDPLine())
-			m_done = 0xff;
-		else {
-			int delay = 100*1000;	// 100ms
-			nextTask() = envir().taskScheduler().scheduleDelayedTask(delay,
-					chkForAuxSDPLine, this);
-		}
-	}
-
-protected:
-	virtual const char *getAuxSDPLine (RTPSink *sink, FramedSource *source)
-	{
-		fprintf(stderr, "[%d] %s .... calling\n", gettid(), __func__);
-		if (mp_sdp_line) return mp_sdp_line;
-
-		mp_dummy_rtpsink = sink;
-		mp_dummy_rtpsink->startPlaying(*source, 0, 0);
-		//mp_dummy_rtpsink->startPlaying(*source, afterPlayingDummy, this);
-		chkForAuxSDPLine(this);
-		m_done = 0;
-		envir().taskScheduler().doEventLoop(&m_done);
-		mp_sdp_line = strdup(mp_dummy_rtpsink->auxSDPLine());
-		mp_dummy_rtpsink->stopPlaying();
-
-		return mp_sdp_line;
 	}
 
 	virtual RTPSink *createNewRTPSink(Groupsock *rtpsock, unsigned char type, FramedSource *source)
@@ -390,39 +265,20 @@ protected:
 		return H264VideoRTPSink::createNew(envir(), rtpsock, type);
 	}
 
-	virtual FramedSource *createNewStreamSource (unsigned sid, unsigned &bitrate)
+	virtual FramedSource *createNewStreamSource(unsigned sid, unsigned &bitrate)
 	{
 		fprintf(stderr, "[%d] %s .... calling\n", gettid(), __func__);
 		bitrate = 500;
-		return H264VideoStreamFramer::createNew(envir(), new WebcamFrameSource(envir()));
+		return H264VideoStreamFramer::createNew(envir(),
+                new WebcamFrameSource(envir(), mwidth, mheight, mformat, mfps));
 	}
 
-private:
-	FramedSource *mp_source;	// 对应 WebcamFrameSource
-	char *mp_sdp_line;
-	RTPSink *mp_dummy_rtpsink;
-	char m_done;
+    public: static WebcamOndemandMediaSubsession *createNew(UsageEnvironment &env,
+                    int width, int height, PixelFormat format, double fps)
+	{
+		return new WebcamOndemandMediaSubsession(env, width, height, format, fps);
+	}
 };
-
-#if 0
-static void test_task (void *ptr)
-{
-	fprintf(stderr, "test: task ....\n");
-	_env->taskScheduler().scheduleDelayedTask(100000, test_task, 0);
-}
-
-static void test (UsageEnvironment &env)
-{
-	fprintf(stderr, "test: begin...\n");
-
-	char done = 0;
-	int delay = 100 * 1000;
-	env.taskScheduler().scheduleDelayedTask(delay, test_task, 0);
-	env.taskScheduler().doEventLoop(&done);
-
-	fprintf(stderr, "test: end..\n");
-}
-#endif
 
 int main (int argc, char **argv)
 {
@@ -430,25 +286,34 @@ int main (int argc, char **argv)
 	TaskScheduler *scheduler = BasicTaskScheduler::createNew();
 	_env = BasicUsageEnvironment::createNew(*scheduler);
 
-	// test
-	//test(*_env);
-
 	// rtsp server
-	RTSPServer *rtspServer = RTSPServer::createNew(*_env, 9554);
+	RTSPServer *rtspServer = RTSPServer::createNew(*_env, SINK_PORT);
 	if (!rtspServer) {
 		fprintf(stderr, "ERR: create RTSPServer err\n");
-		::exit(-1);
+		exit(-1);
 	}
 
 	// add live stream
 	do {
-		WebcamFrameSource *webcam_source = 0;
-
-		ServerMediaSession *sms = ServerMediaSession::createNew(*_env, "webcam", 0, "Session from /dev/video0"); 
-		sms->addSubsession(WebcamOndemandMediaSubsession::createNew(*_env, webcam_source));
+        // low resolution
+		ServerMediaSession *sms = ServerMediaSession::createNew(*_env,
+                "live", 0, "Session from /dev/video0"); 
+		sms->addSubsession(WebcamOndemandMediaSubsession::createNew(*_env,
+                    640, 360, PIX_FMT_YUV420P, FRAME_PER_SEC));
 		rtspServer->addServerMediaSession(sms);
 
 		char *url = rtspServer->rtspURL(sms);
+		*_env << "using url \"" << url << "\"\n";
+		delete [] url;
+
+        // high resolution
+		sms = ServerMediaSession::createNew(*_env,
+                "live-high", 0, "Session from /dev/video0 with high resolution"); 
+		sms->addSubsession(WebcamOndemandMediaSubsession::createNew(*_env,
+                    1280, 720, PIX_FMT_YUV420P, FRAME_PER_SEC));
+		rtspServer->addServerMediaSession(sms);
+
+		url = rtspServer->rtspURL(sms);
 		*_env << "using url \"" << url << "\"\n";
 		delete [] url;
 	} while (0);
